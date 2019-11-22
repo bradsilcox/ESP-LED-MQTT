@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-#include <Adafruit_NeoPixel.h>
+#include <WS2801FX.h>
 #include <ArduinoJson.h>
 #ifdef UseOTA
   #include <ArduinoOTA.h>
@@ -14,8 +14,11 @@
 #include "config.h"
 
 // Neopixel
-Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
+//Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 int ledArray[NUMPIXELS][3]; // Custom array to allow us to buffer changes before sending them
+
+// WS2801FX
+WS2801FX ws2801fx = WS2801FX(NUMPIXELS, LED_DATA_PIN, LED_CLOCK_PIN, WS2801_RGB);
 
 // Wifi
 WiFiClient espClient;
@@ -44,11 +47,11 @@ int sunPosition = 0;
 
 // Other
 unsigned long availabilityPublishTimer = 0;
-int availabilityPublishInterval = 30000;
+int availabilityPublishInterval = 20000;
 
 #pragma region Global Animation Variables
 const int numModes = 13; // This is the total number of modes
-int currentMode; // 0
+int currentMode = 2; // 0
 
 int brightness = 255;
 
@@ -85,7 +88,7 @@ float multiplierSeed;
 #pragma endregion
 
 void resetGlobalAnimationVariables() {
-  currentMode = 0;
+  currentMode = 2;
 
   for (int colour = 0;colour < 3;colour ++) {
     rgbValueOne[colour] = 0;
@@ -119,6 +122,18 @@ void resetGlobalAnimationVariables() {
   multiplierSeed = 0;
 
   chance = 100;
+}
+
+// Create a 24 bit color value from R,G,B
+uint32_t Color(byte r, byte g, byte b)
+{
+  uint32_t c;
+  c = r;
+  c <<= 8;
+  c |= g;
+  c <<= 8;
+  c |= b;
+  return c;
 }
 
 void setModeDefaults(int mode) {
@@ -342,9 +357,11 @@ void updateLedArray_singleColour(int targetColour[3]) {
 
 void updateStripFromLedArray() {
   for (int i = 0; i < NUMPIXELS; i++) {
-    pixels.setPixelColor(i, pixels.Color(ledArray[i][0], ledArray[i][1], ledArray[i][2]));
+    //ws2801fx.setPixelColor(i, Color(ledArray[i][0], ledArray[i][1], ledArray[i][2]));
+    ws2801fx.setPixelColor(i, Color(ledArray[i][0], ledArray[i][1], ledArray[i][2]));
   }
-  pixels.show();
+  ws2801fx.show();
+  //ws2801fx.service();
 }
 
 void publishState() {
@@ -366,22 +383,24 @@ void publishAvailability() {
 }
 
 void publishRecovery() {
-  DynamicJsonBuffer jsonBuffer;                   // Reserve memory space (https://bblanchon.github.io/ArduinoJson/)
-  JsonObject& root = jsonBuffer.createObject();   // Create the JSON object
+  DynamicJsonDocument jsonBuffer(256);                   // Reserve memory space (https://bblanchon.github.io/ArduinoJson/)
+  JsonObject root = jsonBuffer.to<JsonObject>();   // Create the JSON object
+  //deserializeJson(jsonBuffer, message_buff);
+
 
   // Always publish the mode so that there is a current retained message
   root["0"] = currentMode;
 
   // Only publish the other variables if they are non-default
   if (rgbValueOne[0] != 0 | rgbValueOne[1] != 0 | rgbValueOne[2] != 0) {
-    JsonArray& rgbValueOneArray = root.createNestedArray("1");
+    JsonArray rgbValueOneArray = root.createNestedArray("1");
     rgbValueOneArray.add(rgbValueOne[0]);
     rgbValueOneArray.add(rgbValueOne[1]);
     rgbValueOneArray.add(rgbValueOne[2]);
   }
 
   if (rgbValueTwo[0] != 255 | rgbValueTwo[1] != 255 | rgbValueTwo[2] != 255) {
-    JsonArray& rgbValueTwoArray = root.createNestedArray("2");
+    JsonArray rgbValueTwoArray = root.createNestedArray("2");
     rgbValueTwoArray.add(rgbValueTwo[0]);
     rgbValueTwoArray.add(rgbValueTwo[1]);
     rgbValueTwoArray.add(rgbValueTwo[2]);
@@ -428,7 +447,8 @@ void publishRecovery() {
   }
 
   char buffer[256];
-  root.printTo(buffer, sizeof(buffer));
+  //root.printTo(buffer, sizeof(buffer));
+  serializeJson(root, Serial);//, sizeof(root));
   client.publish(recoveryTopic, buffer, true);
 }
 
@@ -529,13 +549,15 @@ void fadeToColour(bool useFlipFlop = false) {
               ledArray[pixel][colour] -= 1;                                 // Subtract 1
             }
           }
-      pixels.setPixelColor(pixel, pixels.Color(ledArray[pixel][0], ledArray[pixel][1], ledArray[pixel][2]));
+      //ws2801fx.setPixelColor(pixel, Color(ledArray[pixel][0], ledArray[pixel][1], ledArray[pixel][2]));
+      ws2801fx.setPixelColor(pixel, Color(ledArray[pixel][0], ledArray[pixel][1], ledArray[pixel][2]));
         }
         else {
           count ++;
         }
       }
-    pixels.show();
+    ws2801fx.show();
+    //ws2801fx.service();
       if (count == NUMPIXELS && useFlipFlop == true) {
         flipFlop = 1;
       }
@@ -564,8 +586,11 @@ void fadePixelToTargetColour(int pixelNo) {
         }
       }
 
-      pixels.setPixelColor(pixelNo, pixels.Color(ledArray[pixelNo][0], ledArray[pixelNo][1], ledArray[pixelNo][2]));
-      pixels.show();
+      //ws2801fx.setPixelColor(pixelNo, Color(ledArray[pixelNo][0], ledArray[pixelNo][1], ledArray[pixelNo][2]));
+      
+      ws2801fx.setPixelColor(pixelNo, Color(ledArray[pixelNo][0], ledArray[pixelNo][1], ledArray[pixelNo][2]));
+      ws2801fx.show();
+      //ws2801fx.service();
     }
     else {
       currentStep++;
@@ -594,8 +619,10 @@ void fadePixelToBaseColour(int pixelNo) {
         }
       }
 
-      pixels.setPixelColor(pixelNo, pixels.Color(ledArray[pixelNo][0], ledArray[pixelNo][1], ledArray[pixelNo][2]));
-      pixels.show();
+      //ws2801fx.setPixelColor(pixelNo, Color(ledArray[pixelNo][0], ledArray[pixelNo][1], ledArray[pixelNo][2]));
+      ws2801fx.setPixelColor(pixelNo, Color(ledArray[pixelNo][0], ledArray[pixelNo][1], ledArray[pixelNo][2]));
+      ws2801fx.show();
+      ws2801fx.service();   
     }
     else {
       currentStep++;
@@ -654,7 +681,7 @@ void fire(int Cooling, int Sparking, int SpeedDelay) { // Need to tailor variabl
     setPixelHeatColor(j, heat[j] );
   }
 
-  pixels.show();
+  ws2801fx.show();
   delay(SpeedDelay);
 }
 void setPixelHeatColor (int Pixel, byte temperature) {
@@ -667,11 +694,11 @@ void setPixelHeatColor (int Pixel, byte temperature) {
  
   // figure out which third of the spectrum we're in:
   if( t192 > 0x80) {                     // hottest
-    pixels.setPixelColor(Pixel, 255, 255, heatramp);
+    ws2801fx.setPixelColor(Pixel, 255, 255, heatramp);
   } else if( t192 > 0x40 ) {             // middle
-    pixels.setPixelColor(Pixel, 255, heatramp, 0);
+    ws2801fx.setPixelColor(Pixel, 255, heatramp, 0);
   } else {                               // coolest
-    pixels.setPixelColor(Pixel, heatramp, 0, 0);
+    ws2801fx.setPixelColor(Pixel, heatramp, 0, 0);
   }
 }
 // Fire Source: https://www.tweaking4all.com/hardware/arduino/adruino-led-strip-effects/#fire
@@ -815,7 +842,7 @@ void rain() {
               ledArray[pixel][colour] -= 1;                                 // Subtract 1
             }
           }
-          pixels.setPixelColor(pixel, pixels.Color(ledArray[pixel][0],ledArray[pixel][1],ledArray[pixel][2]));
+          ws2801fx.setPixelColor(pixel, Color(ledArray[pixel][0],ledArray[pixel][1],ledArray[pixel][2]));
         }
       }
     }
@@ -1074,9 +1101,15 @@ void setup() {
   
   Serial.begin(115200);
 
-  pixels.begin(); // This initializes the NeoPixel library.
-  pixels.setBrightness(brightness);
-  pixels.show();
+//  ws2801fx.begin(); // This initializes the NeoPixel library.
+//  ws2801fx.setBrightness(brightness);
+//  ws2801fx.show();
+
+  ws2801fx.begin();
+  ws2801fx.setBrightness(200);
+  ws2801fx.setSpeed(200);
+  //ws2801fx.setMode(44);
+  ws2801fx.show();
 
   WiFi.hostname(WiFiHostname);
   WiFi.mode(WIFI_STA);
@@ -1147,6 +1180,11 @@ void setup() {
     });
     ArduinoOTA.begin();
   #endif
+
+    #ifdef CHECK_CA_ROOT
+    BearSSL::X509List cert(digicert);
+    net.setTrustAnchors(&cert);
+  #endif
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -1207,13 +1245,14 @@ void callback(char* topic, byte* payload, unsigned int length) {
           message_buff[i + 1] = '\0';   // Add a string terminator to the next character
         }
       }  
-      DynamicJsonBuffer jsonBuffer;                            // Step 1: Reserve memory space (https://bblanchon.github.io/ArduinoJson/)
-      JsonObject& root = jsonBuffer.parseObject(message_buff); // Step 2: Deserialize the JSON string
+      StaticJsonDocument<300> root;                            // Step 1: Reserve memory space (https://bblanchon.github.io/ArduinoJson/)
+      //JsonObject root = root.parseObject(message_buff); // Step 2: Deserialize the JSON string
+      auto error = deserializeJson(root, message_buff);
 
-      if (!root.success()) {
+      if (error) {
         Serial.println("parseObject() failed");
       }
-      else if (root.success()) {
+      else if (!error) {
         if (root.containsKey("0")) {
           resetGlobalAnimationVariables(); // Only do this if the mode changes
           currentMode = root["0"];
@@ -1351,13 +1390,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
         message_buff[i + 1] = '\0';       // Add a string terminator to the next character
       }
     }
-    StaticJsonBuffer<300> jsonBuffer;             // Reserve memory space (https://bblanchon.github.io/ArduinoJson/)
-    JsonObject& root = jsonBuffer.parseObject(message_buff);    // Step 2: Deserialize the JSON string
+    StaticJsonDocument<300> root;             // Reserve memory space (https://bblanchon.github.io/ArduinoJson/)
+    auto error = deserializeJson(root, message_buff);    // Step 2: Deserialize the JSON string
 
-    if (!root.success()) {
+    if (error) {
       Serial.println("parseObject() failed");
     }
-    else if (root.success()) {
+    else if (!error) {
       if (root.containsKey("0")) {
         currentMode = root["0"];
         setModeDefaults(currentMode); // Only do this if the mode changes
@@ -1495,6 +1534,8 @@ void loop() {
   #ifdef UseOTA
     ArduinoOTA.handle();
   #endif
+
+  ws2801fx.show();
 
   yield();
 }

@@ -1,7 +1,8 @@
 // Replace all the placeholders (starting with "<" and ending in ">") with the correct values
 
 // Neopixel
-#define PIN            <SET YOUR DATA PIN HERE>
+#define LED_DATA_PIN   <SET YOUR DATA PIN HERE>
+#define LED_CLOCK_PIN  <SET YOUR CLOCK PIN HERE>
 #define NUMPIXELS      <SET THE NUMBER OF LIGHTS HERE>
 
 // Wifi
